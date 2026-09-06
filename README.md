@@ -1,3 +1,51 @@
+# beamlink
+
+A low-latency audio link: subband codec, UDP transport with a reproducible
+channel simulator, jitter buffer, and packet loss concealment.
+
+**Status: Phase 1 complete.** The full `Source -> Encoder -> Transport ->
+Decoder -> Sink` path runs end to end with every stage a no-op passthrough, so
+`beamlink in.wav out.wav` reproduces its input byte for byte. That identity is
+the regression anchor for every phase after.
+
+## Build and run
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+
+python3 tools/make_test_wav.py in.wav
+./build/src/beamlink in.wav out.wav
+cmp in.wav out.wav          # exits 0: bit-identical
+./build/bench/beamlink_bench
+```
+
+Requires CMake 3.16+ and a C++17 compiler. GoogleTest and Google Benchmark are
+pulled in by FetchContent at configure time, so the first configure needs
+network access. `-DBEAMLINK_BUILD_TESTS=OFF` and `-DBEAMLINK_BUILD_BENCHMARKS=OFF`
+skip those dependencies.
+
+## Layout
+
+| Path | What it holds |
+| --- | --- |
+| [src/beamlink/frame.h](src/beamlink/frame.h) | The frame unit: 64 samples (8 subbands x 8 blocks) at 16 kHz, 4 ms. Fixed, not renegotiated. |
+| [src/beamlink/wav.h](src/beamlink/wav.h) | 16-bit mono PCM reader/writer. Canonical 44-byte header on write. |
+| [src/beamlink/stage.h](src/beamlink/stage.h) | The five abstract stage interfaces. |
+| [src/beamlink/stages.h](src/beamlink/stages.h) | Phase 1 implementations: WAV source/sink, passthrough codec, loopback transport. |
+| [src/beamlink/pipeline.h](src/beamlink/pipeline.h) | Pumps frames through the stages. Interleaves send and drain so an async transport still works. |
+| [tests/](tests/) | GoogleTest suite, including the bit-identity acceptance test. |
+| [bench/](bench/) | Google Benchmark baselines for per-frame cost. |
+| [tools/](tools/) | `make_test_wav.py`, which emits a deterministic sine sweep. |
+
+Each later phase replaces exactly one stage. The codec goes behind
+`Encoder`/`Decoder`, UDP plus the channel simulator behind `Transport`, and the
+jitter buffer and PLC in front of `Decoder` — none of which the other stages or
+the pipeline need to know about.
+
+## Roadmap
+
 Phase 0 — Scaffold (30 min)
 
 CMake project, C++17, src/ tests/ bench/. GoogleTest + Google Benchmark via FetchContent. GitHub Actions running build + tests on push.

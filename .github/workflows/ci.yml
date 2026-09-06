@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # FetchContent pulls GoogleTest and Google Benchmark from GitHub; caching
+      # the deps directory keeps the configure step off the network on reruns.
+      - name: Cache FetchContent deps
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # The Phase 1 acceptance criterion, checked end to end through the actual
+      # binary rather than only through the library.
+      - name: Passthrough is bit-identical
+        run: |
+          python3 tools/make_test_wav.py /tmp/in.wav
+          ./build/src/beamlink /tmp/in.wav /tmp/out.wav
+          cmp /tmp/in.wav /tmp/out.wav
